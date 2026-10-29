@@ -16,7 +16,7 @@ export function buildGitHubSearchQueries(
 ): string[] {
   const queries: string[] = [];
 
-  const langTerm = language && language !== 'Unknown' ? `language:${language.toLowerCase()}` : 'language:typescript';
+  const langTerm = language && language !== 'Unknown' ? `language:${language.toLowerCase()}` : '';
 
   // Extract unique technology names (e.g., 'express', 'redis', 'postgres', 'kafka')
   const cleanTechs = technologies
@@ -25,11 +25,13 @@ export function buildGitHubSearchQueries(
 
   const uniqueTechs = Array.from(new Set(cleanTechs)).slice(0, 3);
 
-  if (uniqueTechs.length > 0) {
-    queries.push(`${uniqueTechs.join(' ')} ${langTerm} stars:>15`);
+  if (uniqueTechs.length > 0 || langTerm) {
+    queries.push(`${uniqueTechs.join(' ')} ${langTerm} stars:>15`.trim());
   }
-  queries.push(`microservice architecture ${langTerm} stars:>20`);
-  queries.push(`api gateway router ${langTerm} stars:>10`);
+  if (langTerm) {
+    queries.push(`microservice architecture ${langTerm} stars:>20`);
+    queries.push(`api gateway router ${langTerm} stars:>10`);
+  }
 
   return queries;
 }
@@ -89,7 +91,7 @@ export function scoreRepositorySimilarity(
   const topicKeywordMatch = Math.min(25, keywordMatches * 5);
 
   // 4. Architectural Pattern Overlap (Max 20 pts)
-  let architecturalMatch = 5; // Base line
+  let architecturalMatch = 0;
   if (textCorpus.includes('microservice') || textCorpus.includes('distributed')) {
     architecturalMatch += 8;
   }
@@ -98,7 +100,7 @@ export function scoreRepositorySimilarity(
   }
   architecturalMatch = Math.min(20, architecturalMatch);
 
-  const similarityScore = Math.min(99, Math.round(languageMatch + technologyMatch + topicKeywordMatch + architecturalMatch));
+  const similarityScore = Math.min(100, Math.round(languageMatch + technologyMatch + topicKeywordMatch + architecturalMatch));
 
   // Build a transparent grounded explanation
   const rationaleParts: string[] = [];
@@ -112,7 +114,7 @@ export function scoreRepositorySimilarity(
     rationaleParts.push(`${keywordMatches} architectural keyword match(es)`);
   }
   if (rationaleParts.length === 0) {
-    rationaleParts.push('General open-source structural pattern correlation');
+    rationaleParts.push('No explicit language, stack, or architecture keyword matches were found');
   }
 
   return {

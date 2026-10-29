@@ -31,9 +31,8 @@ export const GitHubDiscoveryPane: React.FC<GitHubDiscoveryPaneProps> = ({
     setErrorMsg(null);
     setApiWarning(null);
 
-    const language = analysis?.language || 'TypeScript';
-    const technologies = analysis?.documentation.externalIntegrations || ['express', 'redis', 'postgres', 'kafka'];
-    const projectName = analysis?.systemName || 'Enterprise System';
+    const language = analysis?.language || '';
+    const technologies = analysis?.documentation.externalIntegrations || [];
 
     try {
       const res = await fetch('/api/github/search-similar', {
@@ -42,17 +41,14 @@ export const GitHubDiscoveryPane: React.FC<GitHubDiscoveryPaneProps> = ({
         body: JSON.stringify({
           language,
           technologies,
-          projectName,
         }),
       });
 
-      if (!res.ok) {
-        throw new Error(`Search request failed with status ${res.status}`);
-      }
-
       const data = await res.json();
-      setResults(data.results || []);
-      setSearchDuration(data.searchDurationMs || 0);
+      if (!res.ok) throw new Error(data.error || `Search request failed with status ${res.status}`);
+      if (!Array.isArray(data.results)) throw new Error('GitHub search returned an invalid results payload.');
+      setResults(data.results);
+      setSearchDuration(data.searchDurationMs);
       if (data.warning) {
         setApiWarning(data.warning);
       }
@@ -83,13 +79,13 @@ export const GitHubDiscoveryPane: React.FC<GitHubDiscoveryPaneProps> = ({
             </h3>
           </div>
           <p className="text-[10px] text-[#111111]/70 leading-normal">
-            Automated multi-factor similarity analysis based on verified AST stack signatures, frameworks, and architectural design patterns.
+            Repository search and ranking based on detected source language, external package imports, and live repository metadata.
           </p>
         </div>
 
         <button
           onClick={handleDiscoverSimilar}
-          disabled={isLoading}
+          disabled={isLoading || !analysis}
           className="px-4 py-2 bg-[#111111] text-[#dfb2b2] text-[10px] font-bold tracking-widest uppercase flex items-center justify-center space-x-1.5 border border-[#111111] hover:bg-transparent hover:text-[#111111] transition-all disabled:opacity-50 shrink-0"
         >
           {isLoading ? (
@@ -117,6 +113,10 @@ export const GitHubDiscoveryPane: React.FC<GitHubDiscoveryPaneProps> = ({
         <div className="p-2 border border-red-800 bg-red-100/50 text-red-900 text-[9px]">
           {errorMsg}
         </div>
+      )}
+
+      {!analysis && (
+        <p className="text-[9px] text-[#111111]/70">Analyze source before searching; no sample stack is substituted.</p>
       )}
 
       {hasSearched && (

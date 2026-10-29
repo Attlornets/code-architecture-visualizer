@@ -1,16 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
-import { CodeInputPane, PRESET_CODE_SNIPPETS } from '@/components/CodeInputPane';
+import { CodeInputPane } from '@/components/CodeInputPane';
 import { ArchitectureCanvas } from '@/components/ArchitectureCanvas';
 import { SidebarMetadata } from '@/components/SidebarMetadata';
 import { ParserInspectorView } from '@/components/ParserInspectorView';
 import { DocumentationView } from '@/components/DocumentationView';
 import { GitHubDiscoveryPane } from '@/components/GitHubDiscoveryPane';
 import { AnalysisResult, ArchitectureNode } from '@/types/architecture';
-import { analyzeSourceProject } from '@/lib/astParser';
+import { SourceInputFile } from '@/lib/astParser';
 import {
   ShieldCheck,
-  CheckCircle2,
   Menu,
   X,
 } from 'lucide-react';
@@ -20,11 +19,14 @@ export default function HomePage() {
   const [activeNav, setActiveNav] = useState<'CORE.ENGINE' | 'PARSER' | 'GRAPH' | 'DOCUMENTATION'>('CORE.ENGINE');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
 
-  // Global shared analysis state
+  // Global analysis state shared across all 4 navigation destinations
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [selectedNode, setSelectedNode] = useState<ArchitectureNode | null>(null);
   const [isCompiling, setIsCompiling] = useState<boolean>(false);
   const [compileError, setCompileError] = useState<string | null>(null);
+
+  // Bidirectional source navigation state
+  const [focusedSourceLocation, setFocusedSourceLocation] = useState<{ filePath: string; line: number } | null>(null);
 
   // Sync navigation tab with route or query param ?view=
   useEffect(() => {
@@ -36,27 +38,18 @@ export default function HomePage() {
     }
   }, [router.isReady, router.query.view]);
 
-  // Initial immediate parse of default express preset so initial state is never empty
-  useEffect(() => {
-    try {
-      const initial = analyzeSourceProject(
-        [{ path: 'src/api/gateway.ts', content: PRESET_CODE_SNIPPETS.expressGateway.code }],
-        'ENTERPRISE ROUTING CORE'
-      );
-      setAnalysisResult(initial);
-      setSelectedNode(initial.graph.nodes[0] || null);
-    } catch {
-      // Fallback
-    }
-  }, []);
-
   const handleNavChange = (item: 'CORE.ENGINE' | 'PARSER' | 'GRAPH' | 'DOCUMENTATION') => {
     setActiveNav(item);
     setMobileMenuOpen(false);
     router.push({ pathname: '/', query: { view: item } }, undefined, { shallow: true });
   };
 
-  const handleAnalyze = async (sourceCode: string, mode: 'snippet' | 'github', githubUrl?: string) => {
+  const handleAnalyze = async (
+    sourceCode: string,
+    mode: 'snippet' | 'github',
+    githubUrl?: string,
+    customFiles?: SourceInputFile[]
+  ) => {
     setIsCompiling(true);
     setCompileError(null);
 
@@ -66,8 +59,9 @@ export default function HomePage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sourceCode: mode === 'snippet' ? sourceCode : undefined,
+          files: customFiles,
           githubUrl: mode === 'github' ? githubUrl : undefined,
-          projectName: mode === 'github' ? githubUrl?.split('/').pop()?.toUpperCase() : 'COMPILED PIPELINE',
+          projectName: mode === 'github' ? githubUrl?.split('/').pop()?.replace(/\.git$/, '') : undefined,
         }),
       });
 
@@ -76,7 +70,46 @@ export default function HomePage() {
         throw new Error(errData.details || errData.error || `HTTP ${res.status}`);
       }
 
-      const result: AnalysisResult = await res.json();
+      let result: AnalysisResult = await res.json();
+      if (mode === 'github' && githubUrl) {
+        try {
+          const historyResponse = await fetch('/api/git/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ githubUrl }),
+          });
+          if (historyResponse.ok) {
+            const history = await historyResponse.json();
+            result = {
+              ...result,
+              documentation: {
+                ...result.documentation,
+                gitHistory: history.commits,
+                gitHistorySource: history.source,
+              },
+            };
+          } else {
+            const historyError = await historyResponse.json().catch(() => ({ error: 'Commit history request failed.' }));
+            result = {
+              ...result,
+              documentation: {
+                ...result.documentation,
+                gitHistory: [],
+                gitHistoryError: historyError.error || `Git history request failed (${historyResponse.status}).`,
+              },
+            };
+          }
+        } catch (error: unknown) {
+          result = {
+            ...result,
+            documentation: {
+              ...result.documentation,
+              gitHistory: [],
+              gitHistoryError: error instanceof Error ? error.message : 'Git history request failed.',
+            },
+          };
+        }
+      }
       setAnalysisResult(result);
       setSelectedNode(result.graph.nodes[0] || null);
     } catch (err: unknown) {
@@ -91,12 +124,17 @@ export default function HomePage() {
     setSelectedNode(node);
   };
 
+  const handleViewSource = (filePath: string, line: number) => {
+    setFocusedSourceLocation({ filePath, line });
+    setActiveNav('CORE.ENGINE');
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#dfb2b2] text-[#111111] overflow-x-hidden relative font-mono">
       {/* Avant-Garde Rotated Viewport Label Framing Outer Edge */}
       <div className="hidden xl:flex fixed right-3 top-1/2 -translate-y-1/2 z-50 pointer-events-none select-none">
         <div className="vertical-text font-mono text-[9px] tracking-[0.35em] text-[#111111]/60 uppercase border-r border-[#111111]/30 pr-1.5">
-          ENTERPRISE ARCHITECTURE // AST SYNTHESIS CORE // REVISION 2026.4
+          SYNAPSE 2.0 // MULTI-LEVEL TOPOLOGY &amp; CODE INTELLIGENCE
         </div>
       </div>
 
@@ -107,7 +145,7 @@ export default function HomePage() {
             <span className="w-2.5 h-2.5 bg-[#111111]" />
             <span className="editorial-letter-spacing font-sans font-black">SYNAPSE</span>
             <span className="text-[10px] text-[#111111]/60 font-mono tracking-widest hidden sm:inline">
-              [V1.0.0-PROD]
+              [V2.0.0-PROD]
             </span>
           </div>
 
@@ -133,11 +171,11 @@ export default function HomePage() {
         <div className="flex items-center space-x-3">
           <div className="hidden lg:flex items-center space-x-2 text-[10px] text-[#111111]/80">
             <ShieldCheck className="w-3.5 h-3.5 text-[#111111]" />
-            <span>GITHUB ENTERPRISE PUSH COMPLIANT</span>
+            <span>STATIC SOURCE ANALYSIS</span>
           </div>
           <span className="hidden lg:inline text-[#111111]/30">|</span>
           <span className="text-[10px] font-bold px-2 py-0.5 border border-[#111111] bg-[#111111]/5">
-            US-EAST-1 // SECURED
+            ANALYSIS // LOCAL
           </span>
 
           <button
@@ -168,39 +206,39 @@ export default function HomePage() {
         </div>
       )}
 
-      {/* Massive Editorial Asymmetric Title Banner */}
-      <section className="border-b border-[#111111] px-4 md:px-6 py-4 bg-[#dfb2b2] relative overflow-hidden select-none">
-        <div className="max-w-7xl flex flex-col md:flex-row md:items-end justify-between gap-4">
-          <div className="space-y-1">
+      {/* Editorial Title Banner */}
+      <section className="border-b border-[#111111] px-4 md:px-6 py-3.5 bg-[#dfb2b2] relative overflow-hidden select-none">
+        <div className="max-w-7xl flex flex-col md:flex-row md:items-end justify-between gap-3">
+          <div className="space-y-0.5">
             <div className="flex items-center space-x-2 text-[9px] tracking-[0.25em] text-[#111111]/70 uppercase">
               <span>ACTIVE VIEWPORT</span>
               <span>{'//'}</span>
               <span>{activeNav}</span>
             </div>
-            <h1 className="text-2xl sm:text-3xl md:text-5xl font-black font-sans uppercase tracking-tight text-[#111111] leading-none">
-              CODE-TO-ARCHITECTURE <span className="font-light italic tracking-normal">VISUALIZER</span>
+            <h1 className="text-xl sm:text-2xl md:text-4xl font-black font-sans uppercase tracking-tight text-[#111111] leading-none">
+              CODE-TO-ARCHITECTURE <span className="font-light italic tracking-normal">VISUALIZER 2.0</span>
             </h1>
           </div>
 
-          <div className="flex flex-wrap items-center gap-3 text-[10px] tracking-widest text-[#111111]/80">
-            <div className="border border-[#111111] p-2 bg-[#dfb2b2]/40">
-              <span className="block text-[8px] text-[#111111]/60">ACTIVE MODEL</span>
+          <div className="flex flex-wrap items-center gap-2.5 text-[9px] tracking-widest text-[#111111]/80">
+            <div className="border border-[#111111] p-1.5 bg-[#dfb2b2]/40">
+              <span className="block text-[7px] text-[#111111]/60">ACTIVE MODEL</span>
               <span className="font-bold">{analysisResult ? analysisResult.parserName : 'TYPESCRIPT AST'}</span>
             </div>
-            <div className="border border-[#111111] p-2 bg-[#dfb2b2]/40">
-              <span className="block text-[8px] text-[#111111]/60">MEASURED LATENCY</span>
-              <span className="font-bold">{analysisResult ? `${analysisResult.timings.totalMs}ms` : '0.0ms'}</span>
+            <div className="border border-[#111111] p-1.5 bg-[#dfb2b2]/40">
+              <span className="block text-[7px] text-[#111111]/60">ANALYSIS DURATION</span>
+              <span className="font-bold">{analysisResult ? `${analysisResult.timings.totalMs}ms` : '—'}</span>
             </div>
           </div>
         </div>
       </section>
 
       {/* Primary View Switcher Container */}
-      <div className="flex-1 flex flex-col min-h-[calc(100vh-220px)]">
+      <div className="flex-1 flex flex-col min-h-[calc(100vh-210px)]">
         {/* DESTINATION A: CORE.ENGINE (Three-Column Workspace with GitHub Intelligence) */}
         {activeNav === 'CORE.ENGINE' && (
           <div className="flex-1 flex flex-col space-y-4">
-            <main className="flex-1 flex flex-col lg:flex-row min-h-[600px] lg:min-h-0 border-b border-[#111111]">
+            <main className="flex-1 flex flex-col lg:flex-row min-h-[640px] lg:min-h-0 border-b border-[#111111]">
               {/* Left Column: Code / URL Input Stream */}
               <section className="w-full lg:w-[380px] xl:w-[420px] flex-shrink-0 flex flex-col">
                 <CodeInputPane
@@ -208,24 +246,41 @@ export default function HomePage() {
                   isCompiling={isCompiling}
                   currentResult={analysisResult}
                   errorMessage={compileError}
+                  focusedSourceLocation={focusedSourceLocation}
                 />
               </section>
 
               {/* Centerpiece Column: Interactive Graphic Architecture Canvas */}
-              <section className="flex-1 min-w-0 flex flex-col min-h-[450px] lg:min-h-0 border-t lg:border-t-0 border-[#111111]">
+              <section className="flex-1 min-w-0 flex flex-col min-h-[480px] lg:min-h-0 border-t lg:border-t-0 border-[#111111]">
                 {analysisResult && (
                   <ArchitectureCanvas
                     graph={analysisResult.graph}
+                    allLevelNodes={analysisResult.allLevelNodes}
+                    allLevelEdges={analysisResult.allLevelEdges}
                     selectedNode={selectedNode}
                     onNodeClick={handleNodeClick}
+                    onViewSource={handleViewSource}
                     performanceTiming={analysisResult.timings}
+                    executionTraces={analysisResult.executionTraces}
+                    sequenceMessages={analysisResult.sequenceMessages}
+                    classes={analysisResult.classes}
                   />
+                )}
+                {!analysisResult && (
+                  <div className="flex-1 flex items-center justify-center border border-dashed border-[#111111]/50 p-4 text-center text-[10px] uppercase tracking-widest">
+                    Submit source or a public GitHub repository to build the graph
+                  </div>
                 )}
               </section>
 
-              {/* Right Column: Exploded Metadata & Live Plain-English Explainer Dock */}
+              {/* Right Column: Exploded Metadata & Changeability / Impact Inspector */}
               <section className="w-full lg:w-[390px] xl:w-[440px] flex-shrink-0 flex flex-col border-t lg:border-t-0 border-[#111111]">
-                <SidebarMetadata selectedNode={selectedNode} />
+                <SidebarMetadata
+                  selectedNode={selectedNode}
+                  allNodes={analysisResult ? Object.values(analysisResult.allLevelNodes).flat() : []}
+                  edges={analysisResult ? Object.values(analysisResult.allLevelEdges).flat() : []}
+                  onViewSource={handleViewSource}
+                />
               </section>
             </main>
 
@@ -236,10 +291,13 @@ export default function HomePage() {
           </div>
         )}
 
-        {/* DESTINATION B: PARSER (Deep AST Node & Diagnostic Explorer) */}
+        {/* DESTINATION B: PARSER (Deep AST Node & Framework Explorer) */}
         {activeNav === 'PARSER' && (
           <div className="flex-1 flex flex-col">
-            <ParserInspectorView analysis={analysisResult} />
+            <ParserInspectorView
+              analysis={analysisResult}
+              onNavigateToSource={handleViewSource}
+            />
           </div>
         )}
 
@@ -250,53 +308,67 @@ export default function HomePage() {
               {analysisResult && (
                 <ArchitectureCanvas
                   graph={analysisResult.graph}
+                  allLevelNodes={analysisResult.allLevelNodes}
+                  allLevelEdges={analysisResult.allLevelEdges}
                   selectedNode={selectedNode}
                   onNodeClick={handleNodeClick}
+                  onViewSource={handleViewSource}
                   performanceTiming={analysisResult.timings}
+                  executionTraces={analysisResult.executionTraces}
+                  sequenceMessages={analysisResult.sequenceMessages}
+                  classes={analysisResult.classes}
                 />
+              )}
+              {!analysisResult && (
+                <div className="flex-1 flex items-center justify-center text-[10px] uppercase tracking-widest">
+                  No analysis result
+                </div>
               )}
             </div>
             <div className="w-full lg:w-[380px] border-t lg:border-t-0 border-l border-[#111111]">
-              <SidebarMetadata selectedNode={selectedNode} />
+              <SidebarMetadata
+                selectedNode={selectedNode}
+                allNodes={analysisResult ? Object.values(analysisResult.allLevelNodes).flat() : []}
+                edges={analysisResult ? Object.values(analysisResult.allLevelEdges).flat() : []}
+                onViewSource={handleViewSource}
+              />
             </div>
           </div>
         )}
 
-        {/* DESTINATION D: DOCUMENTATION (Generated Architectural Specification) */}
+        {/* DESTINATION D: DOCUMENTATION (Engineering Handoff Center) */}
         {activeNav === 'DOCUMENTATION' && (
           <div className="flex-1 flex flex-col">
             <DocumentationView
               analysis={analysisResult}
               onNavigateToGraph={() => handleNavChange('GRAPH')}
+              onNavigateToSource={handleViewSource}
             />
           </div>
         )}
       </div>
 
-      {/* Functional Enterprise Footer Anchoring Real Timing Metrics & Confirmation Hooks */}
-      <footer className="border-t border-[#111111] bg-[#dfb2b2] px-4 md:px-6 py-2.5 flex flex-wrap items-center justify-between text-[9px] tracking-widest text-[#111111]/80 uppercase select-none z-20 gap-2">
+      {/* Functional Enterprise Footer Anchoring Real Timing Metrics */}
+      <footer className="border-t border-[#111111] bg-[#dfb2b2] px-4 md:px-6 py-2 flex flex-wrap items-center justify-between text-[8px] tracking-widest text-[#111111]/80 uppercase select-none z-20 gap-2">
         <div className="flex flex-wrap items-center space-x-3">
           <div className="flex items-center space-x-1.5 font-bold text-[#111111]">
             <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse-subtle" />
-            <span>STATUS: {analysisResult ? analysisResult.parserStatus : 'OPERATIONAL'}</span>
+            <span>STATUS: {analysisResult ? analysisResult.parserStatus : 'IDLE'}</span>
           </div>
           <span>{'//'}</span>
-          <span>PARSE: {analysisResult ? `${analysisResult.timings.parsingMs}ms` : '0ms'}</span>
+          <span>PARSE: {analysisResult ? `${analysisResult.timings.parsingMs}ms` : '—'}</span>
           <span>{'//'}</span>
-          <span>GRAPH: {analysisResult ? `${analysisResult.timings.graphConstructionMs}ms` : '0ms'}</span>
+          <span>GRAPH: {analysisResult ? `${analysisResult.timings.graphConstructionMs}ms` : '—'}</span>
           <span>{'//'}</span>
-          <span className="hidden sm:inline">V8 TURBOFAN AST RUNTIME</span>
+          <span>DOCS: {analysisResult ? `${analysisResult.timings.documentationMs}ms` : '—'}</span>
+          <span>{'//'}</span>
+          <span className="hidden sm:inline">STATIC ANALYSIS</span>
         </div>
 
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-1">
-            <CheckCircle2 className="w-3 h-3 text-[#111111]" />
-            <span className="font-bold">GITHUB ENTERPRISE COMPLIANT</span>
+            <span className="font-bold">RESULTS GROUNDED IN SOURCE</span>
           </div>
-          <span>{'//'}</span>
-          <span className="text-[#111111]/60">NO HARDCODED SECRETS</span>
-          <span>{'//'}</span>
-          <span>SHA-256: 0x9DF84A</span>
         </div>
       </footer>
     </div>

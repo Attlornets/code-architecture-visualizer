@@ -6,9 +6,51 @@ export type NodeCategory =
   | 'queue'
   | 'cache'
   | 'module'
-  | 'client';
+  | 'client'
+  | 'subsystem'
+  | 'file'
+  | 'symbol';
 
 export type NodeStatus = 'HEALTHY' | 'SYNCED' | 'WARNING' | 'STANDBY';
+
+export type HierarchyLevel = 'SYSTEM' | 'COMPONENT' | 'FILE' | 'SYMBOL' | 'EXECUTION';
+
+export type UmlDiagramMode =
+  | 'SYSTEM_TOPOLOGY'
+  | 'COMPONENT_DIAGRAM'
+  | 'FILE_DEPENDENCY'
+  | 'CALL_GRAPH'
+  | 'DATA_FLOW'
+  | 'SEQUENCE_DIAGRAM'
+  | 'CLASS_DIAGRAM'
+  | 'PACKAGE_DIAGRAM';
+
+export type ArchitectureTemplate =
+  | 'MICROSERVICES'
+  | 'LAYERED'
+  | 'CLEAN_ARCH'
+  | 'HEXAGONAL'
+  | 'MVC'
+  | 'EVENT_DRIVEN'
+  | 'DATA_PIPELINE'
+  | 'CLIENT_SERVER'
+  | 'UML_COMPONENT'
+  | 'UML_SEQUENCE';
+
+export type ChangeabilityClass =
+  | 'APPLICATION_OWNED'
+  | 'CONFIG_DRIVEN'
+  | 'EXTERNAL_DEP'
+  | 'GENERATED'
+  | 'CONTRACT_SENSITIVE'
+  | 'INFRASTRUCTURE'
+  | 'UNKNOWN';
+
+export type RelationshipConfidence =
+  | 'OBSERVED_AST'
+  | 'STATIC_INFERRED'
+  | 'RUNTIME_TRACE_REQUIRED'
+  | 'UNRESOLVED';
 
 export interface NodeMetrics {
   latency: string;
@@ -29,6 +71,18 @@ export interface CodeSymbol {
   character: number;
   exported: boolean;
   docstring?: string;
+  parameters?: string[];
+  returnType?: string;
+  calls?: string[];
+}
+
+export interface ClassInfo {
+  name: string;
+  isInterface: boolean;
+  superClass?: string;
+  interfaces?: string[];
+  methods: { name: string; line: number; visibility: 'public' | 'private' | 'protected'; parameters: string[]; returnType: string }[];
+  properties: { name: string; type: string; visibility: 'public' | 'private' | 'protected' }[];
 }
 
 export interface FileAstSummary {
@@ -37,13 +91,57 @@ export interface FileAstSummary {
   lineCount: number;
   statementCount: number;
   symbols: CodeSymbol[];
+  classes?: ClassInfo[];
   imports: {
     source: string;
     specifiers: string[];
     isDefault: boolean;
     line: number;
   }[];
+  endpoints: string[];
+  packageDependencies?: Record<string, string>;
+  exports: string[];
   parseErrors: string[];
+  frameworkAssociation?: string;
+  frameworkVersion?: string;
+}
+
+export interface ExecutionStep {
+  stepNumber: number;
+  nodeId: string;
+  nodeLabel: string;
+  symbolName: string;
+  filePath: string;
+  line: number;
+  inputDescription: string;
+  operationDescription: string;
+  outputDescription: string;
+  confidence: RelationshipConfidence;
+}
+
+export interface SequenceMessage {
+  id: string;
+  fromNodeId: string;
+  toNodeId: string;
+  fromLabel: string;
+  toLabel: string;
+  label: string;
+  signature: string;
+  stepNumber: number;
+  isAsync: boolean;
+  sourceLine?: number;
+}
+
+export interface ImpactAnalysisResult {
+  targetId: string;
+  targetLabel: string;
+  directDependents: string[];
+  indirectDependents: string[];
+  affectedEndpoints: string[];
+  contractSensitiveCalls: string[];
+  riskLevel: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+  rationale: string;
+  impactPathNodeIds: string[];
 }
 
 export interface ArchitectureNode {
@@ -54,6 +152,8 @@ export interface ArchitectureNode {
   technology: string;
   status: NodeStatus;
   fileOrigin: string;
+  sourceLine?: number;
+  sourceCharacter?: number;
   x: number; // percentage in coordinate canvas (0 - 100)
   y: number; // percentage in coordinate canvas (0 - 100)
   metrics: NodeMetrics;
@@ -61,9 +161,20 @@ export interface ArchitectureNode {
   callChain: string[];
   dependencies: NodeDependencies;
   dataContracts: string[];
-  // Grounded AST metadata
+  // SYNAPSE 2.0 Hierarchical & Changeability Properties
+  level: HierarchyLevel;
+  parentSubsystemId?: string;
+  parentNodeId?: string;
+  subsystem?: string;
   files?: string[];
   symbols?: CodeSymbol[];
+  classes?: ClassInfo[];
+  endpoints?: string[];
+  configKeys?: string[];
+  changeability: ChangeabilityClass;
+  changeabilityEvidence: string;
+  isSubsystemParent?: boolean;
+  collapsed?: boolean;
   inferred?: boolean;
 }
 
@@ -74,6 +185,11 @@ export interface ArchitectureEdge {
   protocol: string;
   flowLabel: string;
   active: boolean;
+  confidence: RelationshipConfidence;
+  relationshipType: 'import' | 'call' | 'data_flow' | 'implements' | 'extends' | 'event_emit' | 'subsystem_link';
+  callSignature?: string;
+  payloadType?: string;
+  sourceLine?: number;
   isInferred?: boolean;
 }
 
@@ -84,6 +200,8 @@ export interface ArchitectureGraph {
   edges: ArchitectureEdge[];
   rawSourceLines: number;
   astNodesCount: number;
+  activeLevel?: HierarchyLevel;
+  activeDiagramMode?: UmlDiagramMode;
 }
 
 export interface ParserDiagnostic {
@@ -94,12 +212,47 @@ export interface ParserDiagnostic {
 }
 
 export interface AnalysisPerformanceTiming {
+  fileDiscoveryMs: number;
   inputProcessingMs: number;
   parsingMs: number;
   graphConstructionMs: number;
+  documentationMs: number;
   githubSearchMs?: number;
   llmInferenceMs?: number;
   totalMs: number;
+}
+
+export interface FrameworkVersionInfo {
+  name: string;
+  version: string;
+  source: 'package.json' | 'manifest' | 'ast_heuristic' | 'unknown';
+  matchedFiles: string[];
+}
+
+export interface GitCommitInfo {
+  hash: string;
+  shortHash: string;
+  author: string;
+  authorEmail?: string;
+  date?: string;
+  message: string;
+  changedFiles: string[];
+  aiSummary?: string;
+  architecturalImpact?: string;
+}
+
+export interface SetupInstructions {
+  prerequisites: string[];
+  cloneCommand: string;
+  directoryCommand: string;
+  installCommand: string;
+  envSetupCommand: string;
+  serviceConfiguration: string[];
+  devStartCommand: string;
+  buildCommand: string;
+  testCommand: string;
+  lintCommand: string;
+  commonTroubleshooting: { issue: string; resolution: string }[];
 }
 
 export interface GeneratedDocumentation {
@@ -130,6 +283,11 @@ export interface GeneratedDocumentation {
     title: string;
     detail: string;
   }[];
+  gitHistory: GitCommitInfo[];
+  gitHistorySource?: string;
+  gitHistoryError?: string;
+  frameworkVersions: FrameworkVersionInfo[];
+  setupInstructions: SetupInstructions;
 }
 
 export interface GitHubSimilarRepo {
@@ -166,9 +324,27 @@ export interface AnalysisResult {
   totalSymbols: number;
   totalImports: number;
   graph: ArchitectureGraph;
+  allLevelNodes: {
+    system: ArchitectureNode[];
+    component: ArchitectureNode[];
+    file: ArchitectureNode[];
+    symbol: ArchitectureNode[];
+    execution: ArchitectureNode[];
+  };
+  allLevelEdges: {
+    system: ArchitectureEdge[];
+    component: ArchitectureEdge[];
+    file: ArchitectureEdge[];
+    symbol: ArchitectureEdge[];
+    execution: ArchitectureEdge[];
+  };
   fileSummaries: FileAstSummary[];
   diagnostics: ParserDiagnostic[];
   timings: AnalysisPerformanceTiming;
   documentation: GeneratedDocumentation;
+  executionTraces: ExecutionStep[];
+  sequenceMessages: SequenceMessage[];
+  classes: ClassInfo[];
   rawSource?: string;
+  rawFiles?: { path: string; content: string }[];
 }

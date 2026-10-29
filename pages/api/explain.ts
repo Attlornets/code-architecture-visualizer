@@ -1,39 +1,48 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 
 interface ExplainRequestBody {
-  nodeLabel: string;
-  category: string;
-  fileOrigin: string;
+  nodeLabel?: string;
+  category?: string;
+  fileOrigin?: string;
   symbols?: string[];
   upstream?: string[];
   downstream?: string[];
   engine?: 'openai' | 'local' | 'deterministic';
 }
 
+type ExplainResponse =
+  | { explanation: string; provider: string; model: string; durationMs: number }
+  | { error: string };
+
 export default async function handler(
   req: NextApiRequest,
-  res: NextApiResponse<{ explanation: string; provider: string; model: string; durationMs: number }>
+  res: NextApiResponse<ExplainResponse>
 ) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
-    return res.status(405).json({
-      explanation: 'Method not allowed',
-      provider: 'none',
-      model: 'none',
-      durationMs: 0,
-    });
+    return res.status(405).json({ error: 'Method Not Allowed. Use POST.' });
   }
 
   const startTime = performance.now();
-  const { nodeLabel, category, fileOrigin, symbols = [], upstream = [], downstream = [], engine = 'openai' }: ExplainRequestBody = req.body;
+  const body = (req.body || {}) as ExplainRequestBody;
+  if (
+    typeof body.nodeLabel !== 'string' ||
+    typeof body.category !== 'string' ||
+    typeof body.fileOrigin !== 'string'
+  ) {
+    return res.status(400).json({ error: 'nodeLabel, category, and fileOrigin are required.' });
+  }
 
-  // Grounded architectural facts
-  const upstreamText = upstream.length > 0 ? upstream.join(', ') : 'Root ingress';
-  const downstreamText = downstream.length > 0 ? downstream.join(', ') : 'Terminal sink';
-  const symbolsText = symbols.length > 0 ? `Detected symbols include ${symbols.slice(0, 4).join(', ')}.` : '';
+  const symbols = Array.isArray(body.symbols) ? body.symbols.filter((item): item is string => typeof item === 'string') : [];
+  const upstream = Array.isArray(body.upstream) ? body.upstream.filter((item): item is string => typeof item === 'string') : [];
+  const downstream = Array.isArray(body.downstream) ? body.downstream.filter((item): item is string => typeof item === 'string') : [];
+  const engine = body.engine || 'deterministic';
+  const durationMs = () => Math.round((performance.now() - startTime) * 100) / 100;
 
-  // 1. If OpenAI engine requested and OPENAI_API_KEY is configured
-  if (engine === 'openai' && process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'your_secured_openai_token_here') {
+  if (engine === 'openai') {
+    if (!process.env.OPENAI_API_KEY) {
+      return res.status(503).json({ error: 'OpenAI explanations require OPENAI_API_KEY.' });
+    }
     try {
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -46,80 +55,76 @@ export default async function handler(
           messages: [
             {
               role: 'system',
-              content: 'You are an enterprise systems architect. Provide a concise, 2-3 sentence technical explanation of an architecture component based strictly on verified AST code metadata. Never fabricate details.',
+              content: 'Explain only the supplied static-analysis evidence. If a fact is not provided, state that it was not determined.',
             },
             {
               role: 'user',
-              content: `Component: "${nodeLabel}" (${category}). File origin: "${fileOrigin}". Upstream: ${upstreamText}. Downstream: ${downstreamText}. Symbols: ${symbolsText}`,
+              content: JSON.stringify({
+                label: body.nodeLabel,
+                category: body.category,
+                file: body.fileOrigin,
+                symbols,
+                upstream,
+                downstream,
+              }),
             },
           ],
           max_tokens: 150,
           temperature: 0.2,
         }),
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        const content = data.choices?.[0]?.message?.content;
-        if (content) {
-          const durationMs = Math.round((performance.now() - startTime) * 100) / 100;
-          return res.status(200).json({
-            explanation: content.trim(),
-            provider: 'OpenAI Cloud',
-            model: 'gpt-4o',
-            durationMs,
-          });
-        }
+      if (!response.ok) {
+        return res.status(502).json({ error: `OpenAI request failed (${response.status} ${response.statusText}).` });
       }
-    } catch {
-      // Fall through to deterministic synthesizer
+      const data = await response.json() as { choices?: { message?: { content?: string } }[] };
+      const explanation = data.choices?.[0]?.message?.content?.trim();
+      if (!explanation) return res.status(502).json({ error: 'OpenAI returned no explanation text.' });
+      return res.status(200).json({ explanation, provider: 'OpenAI', model: 'gpt-4o', durationMs: durationMs() });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown OpenAI request failure';
+      return res.status(502).json({ error: `OpenAI request failed: ${message}` });
     }
   }
 
-  // 2. If Local LLM requested (Ollama or vLLM)
   if (engine === 'local') {
-    const localEndpoint = process.env.LOCAL_LLM_ENDPOINT || 'http://localhost:11434';
+    const localEndpoint = process.env.LOCAL_LLM_ENDPOINT;
+    if (!localEndpoint) {
+      return res.status(503).json({ error: 'Local explanations require LOCAL_LLM_ENDPOINT.' });
+    }
     try {
-      const response = await fetch(`${localEndpoint}/api/generate`, {
+      const response = await fetch(`${localEndpoint.replace(/\/+$/, '')}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: 'llama3',
-          prompt: `Explain this architecture component in 2 factual sentences: Component: ${nodeLabel} (${category}) at ${fileOrigin}. Upstream: ${upstreamText}. Downstream: ${downstreamText}.`,
+          prompt: `Explain only this static-analysis evidence. Label: ${body.nodeLabel}; category: ${body.category}; file: ${body.fileOrigin}; upstream: ${upstream.join(', ') || 'none detected'}; downstream: ${downstream.join(', ') || 'none detected'}; symbols: ${symbols.join(', ') || 'none detected'}.`,
           stream: false,
         }),
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.response) {
-          const durationMs = Math.round((performance.now() - startTime) * 100) / 100;
-          return res.status(200).json({
-            explanation: data.response.trim(),
-            provider: 'Local Ollama Daemon',
-            model: 'llama3:8b',
-            durationMs,
-          });
-        }
+      if (!response.ok) {
+        return res.status(502).json({ error: `Local model request failed (${response.status} ${response.statusText}).` });
       }
-    } catch {
-      // Fall through to deterministic synthesizer
+      const data = await response.json() as { response?: string };
+      const explanation = data.response?.trim();
+      if (!explanation) return res.status(502).json({ error: 'Local model returned no explanation text.' });
+      return res.status(200).json({ explanation, provider: 'Local model', model: 'llama3', durationMs: durationMs() });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown local model request failure';
+      return res.status(502).json({ error: `Local model request failed: ${message}` });
     }
   }
 
-  // 3. Grounded Deterministic Synthesizer (Honest, accurate, verified evidence)
-  const durationMs = Math.round((performance.now() - startTime) * 100) / 100;
-  const deterministicExplanation =
-    `The ${nodeLabel} operates as a ${category.toUpperCase()} component defined in '${fileOrigin}'. ` +
-    `It receives input traffic from [${upstreamText}] and routes state to [${downstreamText}]. ` +
-    (symbols.length > 0
-      ? `Static AST analysis verified ${symbols.length} code symbols (${symbols.slice(0, 3).join(', ')}) orchestrating its control flow.`
-      : 'Static AST analysis verified the boundary structure with direct module export bindings.');
-
+  const connections = [
+    upstream.length > 0 ? `Observed dependencies: ${upstream.join(', ')}.` : 'No upstream module dependency was detected.',
+    downstream.length > 0 ? `Observed dependents: ${downstream.join(', ')}.` : 'No downstream dependent was detected.',
+  ];
+  const symbolText = symbols.length > 0
+    ? ` Parsed declarations include ${symbols.slice(0, 4).join(', ')}.`
+    : ' No symbols were attached to this node.';
   return res.status(200).json({
-    explanation: deterministicExplanation,
-    provider: 'Deterministic AST Synthesizer',
-    model: 'Rule-Based Semantic Analyzer (Grounded)',
-    durationMs,
+    explanation: `${body.nodeLabel} is a ${body.category} node associated with ${body.fileOrigin}.${symbolText} ${connections.join(' ')}`,
+    provider: 'Deterministic AST summary',
+    model: 'Static analysis',
+    durationMs: durationMs(),
   });
 }

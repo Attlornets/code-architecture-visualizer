@@ -1,12 +1,11 @@
 # SYNAPSE // Interactive Code-to-Architecture Visualizer & Live Explainer
 
-> **Enterprise-grade AST parser, dynamic topological architecture visualizer, and plain-English LLM explainer wrapped in an avant-garde editorial dashboard.**
+> **A source-grounded TypeScript/JavaScript dependency visualizer with hierarchical source navigation and an avant-garde editorial dashboard.**
 
 [![CI Pipeline](https://github.com/enterprise/code-to-architecture-visualizer/actions/workflows/ci.yml/badge.svg)](https://github.com/enterprise/code-to-architecture-visualizer/actions/workflows/ci.yml)
 [![Node.js Version](https://img.shields.io/badge/Node.js-20.x-111111?style=flat&logo=node.js&color=111111)](https://nodejs.org)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-111111?style=flat&logo=typescript&color=111111)](https://www.typescriptlang.org)
 [![Next.js](https://img.shields.io/badge/Next.js-14.2-111111?style=flat&logo=next.js&color=111111)](https://nextjs.org)
-[![Security Compliance](https://img.shields.io/badge/Enterprise_Compliance-SOC2_Type_II_--_Zero_Trust-111111?style=flat)](https://github.com)
 
 ---
 
@@ -14,11 +13,12 @@
 
 Modern microservices, serverless topologies, and modular monoliths evolve rapidly. Static README diagrams like Mermaid charts or static PNGs drift out of sync with production code within weeks.
 
-**SYNAPSE** solves this architectural decay by providing an interactive, live developer tool:
-1. **Source Code / Repository Ingestion:** Developers paste a raw backend code snippet (Express, FastAPI, NestJS, Go, Prisma, Redis) or an enterprise GitHub repository URL.
-2. **Deterministic AST Parsing:** The engine analyzes import trees, routing middleware chains, database connection pools, and distributed message broker dispatch loops.
-3. **Dynamic Vector Topology Map:** Renders an animated 2D interactive canvas showing how HTTP requests, authentication perimeters, caches, databases, and message brokers interconnect.
-4. **Contextual Live Explainer:** Clicking any node reveals its exploded metadata, upstream/downstream dependencies, cryptographic boundaries, and plain-English summaries powered by OpenAI GPT-4o or local Ollama instances.
+**SYNAPSE** provides an interactive static-analysis workflow:
+1. **Source ingestion:** Analyze supplied TypeScript/JavaScript files or a public GitHub repository. A small illustrative project is available only through the explicitly labeled **LOAD DEMO FIXTURE** action.
+2. **AST parsing:** TypeScript compiler APIs extract declarations, imports, and common HTTP route registrations. Relative imports are connected only when they resolve to discovered files. This is static analysis, not runtime tracing or semantic type checking.
+3. **Hierarchical graph:** Navigate system groupings, source modules, files, and symbols. Relationship edges are based on resolved imports or statically inferred call-name matches; inferred edges are labeled accordingly.
+4. **Documentation and impact:** These views use the same analysis result. Runtime latency, throughput, security posture, and actual execution behavior are not inferred.
+5. **GitHub integrations:** Repository search and commit summaries use live GitHub REST API responses. API failures are shown rather than replaced with sample repositories or commits.
 
 ---
 
@@ -37,20 +37,27 @@ SYNAPSE deliberately rejects generic corporate dashboard patterns in favor of an
 ```
 ├── .github/
 │   └── workflows/
-│       └── ci.yml               # Enterprise CI validation & build verification
+│       └── ci.yml               # CI lint, type-check and build workflow
 ├── components/
-│   ├── ArchitectureCanvas.tsx   # Dynamic vector centerpiece with animated SVG paths
-│   ├── CodeInputPane.tsx        # Controlled AST stream view & compilation triggers
-│   └── SidebarMetadata.tsx      # Plain-English LLM explainer & diagnostic dossier
+│   ├── ArchitectureCanvas.tsx   # Interactive graph and hierarchy navigation
+│   ├── CodeInputPane.tsx        # Source input and source-location viewer
+│   ├── DocumentationView.tsx    # Analysis-derived documentation
+│   ├── GitHubDiscoveryPane.tsx  # Live repository search results
+│   ├── ParserInspectorView.tsx  # AST declarations and diagnostics
+│   └── SidebarMetadata.tsx      # Node details and impact analysis
+├── lib/
+│   ├── astParser.ts             # AST parsing and graph construction
+│   ├── githubDiscovery.ts       # Search query and repository scoring helpers
+│   └── impactAnalysis.ts        # Dependency impact traversal
 ├── pages/
 │   ├── _app.tsx                 # Global application wrapper and typography baseline
 │   └── index.tsx                # Three-column horizon orchestration & editorial header
+│   └── api/                     # Source analysis, GitHub, explanation and history endpoints
 ├── styles/
 │   └── globals.css              # Editorial Tailwind utilities, dash keyframes, & grid patterns
 ├── types/
 │   └── architecture.ts          # Strongly typed domain entities, nodes, and edges
-├── .env.example                 # Enterprise environment configuration template
-├── .gitignore                   # Strict enterprise artifact & secret exclusions
+├── .env.example                 # Optional server-side integration settings
 ├── next.config.js               # Next.js production build configuration
 ├── package.json                 # Project scripts, dependencies, and metadata
 ├── postcss.config.js            # PostCSS engine pipeline
@@ -69,10 +76,10 @@ SYNAPSE deliberately rejects generic corporate dashboard patterns in favor of an
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/your-org/code-to-architecture-visualizer.git
+git clone https://github.com/Attlornets/code-architecture-visualizer.git
 cd code-to-architecture-visualizer
 
-# Copy environment variables
+# Optional: configure .env.local from .env.example
 cp .env.example .env.local
 
 # Install verified dependencies
@@ -95,33 +102,36 @@ npm run type-check
 
 # Compile production build
 npm run build
+
+# Run analysis and API integration tests
+npm test
 ```
 
 ---
 
-## 5. Environment Configuration
+## 5. Optional Integrations
 
-All environment variables must be defined in `.env.local` for local execution or via your deployment secret manager:
+The local source parser and deterministic AST summary do not require API credentials. Configure these server-side only when you need the related integration:
 
 | Parameter | Type | Required | Description |
 | :--- | :--- | :--- | :--- |
-| `NEXT_PUBLIC_APP_ENV` | `string` | Yes | Target deployment tier (`development`, `staging`, `production`) |
-| `NEXT_PUBLIC_API_BASE_URL` | `string` | Yes | Ingress API gateway endpoint for AST telemetry services |
-| `OPENAI_API_KEY` | `string` | Optional | API token for remote GPT-4o plain-English node synthesizers |
-| `LOCAL_LLM_ENDPOINT` | `string` | Optional | Local endpoint for Ollama or vLLM daemon (`http://localhost:11434`) |
+| `GITHUB_TOKEN` | `string` | Optional | Raises GitHub API rate limits and permits access to private repositories available to the token. Public repository analysis and search can work without it, subject to unauthenticated rate limits. |
+| `OPENAI_API_KEY` | `string` | Optional | Enables OpenAI-powered component explanations. |
+| `LOCAL_LLM_ENDPOINT` | `URL` | Optional | Enables local Ollama-compatible explanations when the endpoint is reachable. |
+
+Git history is fetched only for repository analyses; pasted snippets and local fixture inputs have no associated repository history. GitHub commit-summary responses do not include changed-file lists, which are therefore shown as unavailable. Similar-repository discovery requires a usable detected language or external package and a reachable GitHub API.
 
 ---
 
-## 6. GitHub Enterprise Push Compliance & Security
+## 6. Analysis and API boundaries
 
-This repository is pre-configured to comply with enterprise push protection and zero-trust engineering standards:
-- **No Hardcoded Secrets:** Zero API keys, bearer tokens, or internal credentials exist in the source tree. All secrets are read via environment variables.
-- **Strict `.gitignore`:** Eliminates risk of committing `.env` files, build caches, system artifacts, and temporary dumps.
-- **Continuous Integration (`ci.yml`):** Runs on every push or PR to `main` and `master`, verifying dependency integrity (`npm ci`), syntax linting, strict TypeScript checks, and production artifact builds.
-- **Content Security & Sanitization:** All user-supplied snippets and URLs are handled in memory without executing unsafe `eval()` or unescaped HTML injections.
+- Source text is parsed as data; the analyzer does not execute submitted code.
+- Remote repository analysis, commit history, and similar-repository discovery depend on GitHub availability and rate limits. `GITHUB_TOKEN` is optional for public repositories and required for private repositories.
+- Explanations use the local deterministic summary by default. OpenAI and local-model options require their respective integrations and report failures rather than silently switching providers.
+- Static relationships and path-based subsystem groupings are not runtime traces, security assessments, or measured performance metrics.
 
 ---
 
 ## 7. License
 
-Distributed under the Apache 2.0 Enterprise License. See `LICENSE` for details.
+This repository does not currently contain a LICENSE file; no license is asserted here.
