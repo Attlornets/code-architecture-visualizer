@@ -5,335 +5,188 @@ import {
   Terminal,
   Cpu,
   Sparkles,
-  Layers,
   ArrowRight,
   FileCode2,
   CheckCircle2,
+  AlertTriangle,
+  RotateCcw,
 } from 'lucide-react';
-import { ArchitectureGraph, ArchitectureNode, ArchitectureEdge } from '@/types/architecture';
+import { AnalysisResult } from '@/types/architecture';
 
 interface CodeInputPaneProps {
-  onCompile: (graph: ArchitectureGraph) => void;
+  onAnalyze: (sourceCode: string, mode: 'snippet' | 'github', githubUrl?: string) => Promise<void>;
   isCompiling: boolean;
+  currentResult: AnalysisResult | null;
+  errorMessage?: string | null;
 }
 
-const PRESET_SNIPPET = `// Enterprise Microservices Routing & Persistence Gateway
+export const PRESET_CODE_SNIPPETS: Record<string, { label: string; code: string; language: string }> = {
+  expressGateway: {
+    label: 'Express API Gateway + Postgres + Redis',
+    language: 'TypeScript',
+    code: `// Enterprise Microservices Routing & Persistence Gateway
 import { Router, Request, Response, NextFunction } from 'express';
-import { authenticateJWT, rateLimiter } from '@/middleware/security';
-import { TelemetryClient } from '@enterprise/telemetry';
-import { UserAnalyticsRepository } from '@/infrastructure/postgres';
-import { EventProducer } from '@/infrastructure/kafka';
-import { RedisClusterPool } from '@/infrastructure/redis';
+import { authenticateJWT, rateLimiter } from './security';
+import { UserAnalyticsRepository } from './postgres';
+import { EventProducer } from './kafka';
+import { RedisClusterPool } from './redis';
 
-const gatewayRouter = Router();
+export const gatewayRouter = Router();
 const redis = new RedisClusterPool({ clusterId: 'edge-01' });
 const analyticsDb = new UserAnalyticsRepository();
 const eventBus = new EventProducer({ topic: 'telemetry.ingress.v1' });
 
 gatewayRouter.use('/v1/system', rateLimiter({ max: 5000, windowMs: 60000 }));
 
-gatewayRouter.post(
-  '/telemetry/dispatch',
-  authenticateJWT,
-  async (req: Request, res: Response, next: NextFunction) => {
-    const traceId = req.headers['x-request-id'] || 'trace-gen-0x99';
-    try {
-      // 1. Check Hot Cache Session
-      const cachedSession = await redis.get(\`session:\${req.body.userId}\`);
-      
-      // 2. Persist Relational Ledger Entry
-      const record = await analyticsDb.insertRecord({
-        userId: req.body.userId,
-        payload: req.body.metricPayload,
-        traceId,
-      });
+export async function dispatchTelemetryHandler(req: Request, res: Response, next: NextFunction) {
+  const traceId = req.headers['x-request-id'] || 'trace-gen-0x99';
+  try {
+    // 1. Check Hot Cache Session
+    const cachedSession = await redis.get(\`session:\${req.body.userId}\`);
+    
+    // 2. Persist Relational Ledger Entry
+    const record = await analyticsDb.insertRecord({
+      userId: req.body.userId,
+      payload: req.body.metricPayload,
+      traceId,
+    });
 
-      // 3. Emit Asynchronous Distributed Stream Event
-      await eventBus.publish({
-        topic: 'events.user.action',
-        key: record.id,
-        value: JSON.stringify(record),
-      });
+    // 3. Emit Asynchronous Distributed Stream Event
+    await eventBus.publish({
+      topic: 'events.user.action',
+      key: record.id,
+      value: JSON.stringify(record),
+    });
 
-      return res.status(200).json({ status: 'ACK', traceId, recordId: record.id });
-    } catch (error) {
-      TelemetryClient.captureException(error);
-      return res.status(500).json({ error: 'SYSTEM_ROUTING_FAULT' });
-    }
+    return res.status(200).json({ status: 'ACK', traceId, recordId: record.id });
+  } catch (error) {
+    return res.status(500).json({ error: 'SYSTEM_ROUTING_FAULT' });
   }
-);
+}
 
-export default gatewayRouter;`;
+gatewayRouter.post('/telemetry/dispatch', authenticateJWT, dispatchTelemetryHandler);
+export default gatewayRouter;`,
+  },
+  microserviceAuth: {
+    label: 'Zero-Trust JWT Auth Middleware + Keystore',
+    language: 'TypeScript',
+    code: `// RS256 Cryptographic Authentication & Token Validation
+import { Request, Response, NextFunction } from 'express';
+import { verify, JwtPayload } from 'jsonwebtoken';
+import { RedisClient } from './redis';
 
-const PRESET_GRAPHS: Record<string, ArchitectureGraph> = {
-  default: {
-    systemName: 'ENTERPRISE ROUTING CORE',
-    complianceLevel: 'SOC2-TYPE-II // ISO-27001',
-    rawSourceLines: 46,
-    astNodesCount: 128,
-    nodes: [
-      {
-        id: 'node-gateway',
-        hexId: '0x8A10',
-        label: 'Gateway API Router',
-        category: 'gateway',
-        technology: 'Express / Envoy Ingress',
-        status: 'HEALTHY',
-        fileOrigin: 'src/api/gateway.ts',
-        x: 18,
-        y: 48,
-        metrics: {
-          latency: '2.4ms',
-          throughput: '14.2k req/s',
-          securityZone: 'DMZ Public Tier',
-          complexity: 'O(1) Hash Map Routing',
-        },
-        summary:
-          'Ingress gateway dispatching inbound HTTP/2 requests with TLS 1.3 termination, rate-limiting enforcement, and distributed trace header propagation.',
-        callChain: [
-          'gatewayRouter.use("/v1/system", rateLimiter)',
-          'gatewayRouter.post("/telemetry/dispatch", authenticateJWT)',
-          'dispatchController.routeExecution()',
-        ],
-        dependencies: {
-          upstream: ['Client Mobile/Web Clients', 'Edge CDN Cloudflare'],
-          downstream: ['node-auth', 'node-cache', 'node-db', 'node-queue'],
-        },
-        dataContracts: ['POST /v1/system/telemetry/dispatch', 'Header: x-request-id', 'Bearer JWT'],
-      },
-      {
-        id: 'node-auth',
-        hexId: '0x2B4F',
-        label: 'Auth & Session Middleware',
-        category: 'middleware',
-        technology: 'RS256 JWT / Keystore',
-        status: 'HEALTHY',
-        fileOrigin: 'src/middleware/security.ts',
-        x: 48,
-        y: 20,
-        metrics: {
-          latency: '0.8ms',
-          throughput: '22.0k val/s',
-          securityZone: 'Zero-Trust Perimeter',
-          complexity: 'Asymmetric Cryptographic Verification',
-        },
-        summary:
-          'Intercepts every incoming request to validate digital signatures against the enterprise public keystore, enforcing tenant role isolation and scope claims.',
-        callChain: [
-          'authenticateJWT(req, res, next)',
-          'verifyRS256Signature(token)',
-          'attachClaimsToRequestContext()',
-        ],
-        dependencies: {
-          upstream: ['node-gateway'],
-          downstream: ['node-cache'],
-        },
-        dataContracts: ['Authorization: Bearer <jwt>', 'Claims: { uid, tenant_id, role }'],
-      },
-      {
-        id: 'node-cache',
-        hexId: '0x3D72',
-        label: 'Redis Cluster Edge Pool',
-        category: 'cache',
-        technology: 'Redis 7.2 In-Memory Cluster',
-        status: 'SYNCED',
-        fileOrigin: 'src/infrastructure/redis.ts',
-        x: 48,
-        y: 76,
-        metrics: {
-          latency: '0.3ms',
-          throughput: '45.0k ops/s',
-          securityZone: 'Internal VPC Tier-A',
-          complexity: 'In-Memory Sub-Millisecond Hash',
-        },
-        summary:
-          'Distributed memory pool storing active user sessions, token revocations, and short-lived sliding window rate-limiter counters.',
-        callChain: [
-          'redis.get("session:" + userId)',
-          'redis.expire(key, 3600)',
-          'redisClusterPool.connectionKeepAlive()',
-        ],
-        dependencies: {
-          upstream: ['node-gateway', 'node-auth'],
-          downstream: [],
-        },
-        dataContracts: ['Key: session:{userId}', 'TTL: 3600s', 'Protocol: RESP3'],
-      },
-      {
-        id: 'node-db',
-        hexId: '0x9E88',
-        label: 'PostgreSQL Analytics Ledger',
-        category: 'database',
-        technology: 'PostgreSQL 16 Enterprise',
-        status: 'HEALTHY',
-        fileOrigin: 'src/infrastructure/postgres.ts',
-        x: 82,
-        y: 30,
-        metrics: {
-          latency: '4.8ms',
-          throughput: '6.8k writes/s',
-          securityZone: 'Encrypted at Rest (AES-256)',
-          complexity: 'ACID Transactional B-Tree Index',
-        },
-        summary:
-          'Primary relational persistence store holding immutable telemetry ledger entries, partitioned by tenant identifier with continuous streaming replication.',
-        callChain: [
-          'analyticsDb.insertRecord({ userId, payload, traceId })',
-          'pgPool.query("INSERT INTO telemetry_ledger...")',
-          'walStreamer.emitHeartbeat()',
-        ],
-        dependencies: {
-          upstream: ['node-gateway'],
-          downstream: ['node-queue'],
-        },
-        dataContracts: ['Table: telemetry_ledger', 'Foreign Key: users(id)', 'Partition: monthly'],
-      },
-      {
-        id: 'node-queue',
-        hexId: '0xF10C',
-        label: 'Kafka Event Dispatch Bus',
-        category: 'queue',
-        technology: 'Apache Kafka 3.6 Event Stream',
-        status: 'HEALTHY',
-        fileOrigin: 'src/infrastructure/kafka.ts',
-        x: 82,
-        y: 72,
-        metrics: {
-          latency: '1.9ms',
-          throughput: '85.0k msgs/s',
-          securityZone: 'Internal Streaming Mesh',
-          complexity: 'Log-Appended Distributed Partitioning',
-        },
-        summary:
-          'High-throughput message pipeline broadcasting asynchronously committed state mutations to downstream analytical pipelines, search indexes, and microservices.',
-        callChain: [
-          'eventBus.publish({ topic, key, value })',
-          'kafkaProducer.sendBatch()',
-          'consumerWorkerPool.ack()',
-        ],
-        dependencies: {
-          upstream: ['node-gateway', 'node-db'],
-          downstream: ['Downstream ML Ingestion', 'Elasticsearch Syncer'],
-        },
-        dataContracts: ['Topic: events.user.action', 'Format: Avro / JSON Schema v1', 'Acks: all'],
-      },
-    ],
-    edges: [
-      {
-        id: 'edge-gw-auth',
-        source: 'node-gateway',
-        target: 'node-auth',
-        protocol: 'Internal Loop / Direct Call',
-        flowLabel: 'Verify Bearer Token',
-        active: true,
-      },
-      {
-        id: 'edge-gw-cache',
-        source: 'node-gateway',
-        target: 'node-cache',
-        protocol: 'TCP / RESP3 Protocol',
-        flowLabel: 'Session Cache Lookup',
-        active: true,
-      },
-      {
-        id: 'edge-auth-cache',
-        source: 'node-auth',
-        target: 'node-cache',
-        protocol: 'Internal Socket',
-        flowLabel: 'Check Token Revocation',
-        active: false,
-      },
-      {
-        id: 'edge-gw-db',
-        source: 'node-gateway',
-        target: 'node-db',
-        protocol: 'PostgreSQL Wire / TLS',
-        flowLabel: 'INSERT Transaction',
-        active: true,
-      },
-      {
-        id: 'edge-gw-queue',
-        source: 'node-gateway',
-        target: 'node-queue',
-        protocol: 'Kafka Binary TCP Stream',
-        flowLabel: 'Produce Event payload',
-        active: true,
-      },
-      {
-        id: 'edge-db-queue',
-        source: 'node-db',
-        target: 'node-queue',
-        protocol: 'CDC / WAL Debezium',
-        flowLabel: 'Change Data Capture Stream',
-        active: false,
-      },
-    ],
+export interface AuthenticatedUser {
+  id: string;
+  tenantId: string;
+  roles: string[];
+}
+
+export class SecurityGuardService {
+  private cache: RedisClient;
+
+  constructor() {
+    this.cache = new RedisClient();
+  }
+
+  public async verifyToken(token: string): Promise<AuthenticatedUser | null> {
+    const isRevoked = await this.cache.get(\`revoked:\${token}\`);
+    if (isRevoked) {
+      return null;
+    }
+    const decoded = verify(token, process.env.PUBLIC_KEY || 'secret') as JwtPayload;
+    return {
+      id: decoded.sub as string,
+      tenantId: decoded.tenantId as string,
+      roles: decoded.roles || [],
+    };
+  }
+}
+
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const guard = new SecurityGuardService();
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'UNAUTHORIZED' });
+
+  const user = await guard.verifyToken(token);
+  if (!user) return res.status(403).json({ error: 'INVALID_TOKEN' });
+
+  req.body.user = user;
+  return next();
+}`,
+  },
+  fastifyPipeline: {
+    label: 'Fastify Ingestion Engine + Queue Worker',
+    language: 'TypeScript',
+    code: `// Fastify Ingress Pipeline with BullMQ Job Queue
+import Fastify, { FastifyInstance } from 'fastify';
+import { Queue } from 'bullmq';
+
+export interface IngestionPayload {
+  eventId: string;
+  deviceType: string;
+  metrics: Record<string, number>;
+}
+
+export class IngestionServer {
+  private app: FastifyInstance;
+  private queue: Queue;
+
+  constructor() {
+    this.app = Fastify({ logger: true });
+    this.queue = new Queue('ingestion-queue');
+    this.setupRoutes();
+  }
+
+  private setupRoutes() {
+    this.app.post('/events', async (request, reply) => {
+      const data = request.body as IngestionPayload;
+      const job = await this.queue.add('process-event', data);
+      return reply.code(202).send({ queued: true, jobId: job.id });
+    });
+  }
+
+  public async start(port: number = 8080) {
+    await this.app.listen({ port });
+  }
+}`,
   },
 };
 
-export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompiling }) => {
+export const CodeInputPane: React.FC<CodeInputPaneProps> = ({
+  onAnalyze,
+  isCompiling,
+  currentResult,
+  errorMessage,
+}) => {
   const [mode, setMode] = useState<'snippet' | 'github'>('snippet');
-  const [sourceCode, setSourceCode] = useState<string>(PRESET_SNIPPET);
+  const [selectedPreset, setSelectedPreset] = useState<string>('expressGateway');
+  const [sourceCode, setSourceCode] = useState<string>(PRESET_CODE_SNIPPETS.expressGateway.code);
   const [githubUrl, setGithubUrl] = useState<string>(
-    'https://github.com/enterprise-systems/telemetry-mesh-core'
+    'https://github.com/nestjs/nest'
   );
-  const [tokenCounter, setTokenCounter] = useState<number>(142);
-  const [lastCompilationTime, setLastCompilationTime] = useState<string>('00:00:00 UTC');
 
   const lineCount = sourceCode.split('\n').length;
+  const tokenEstimate = Math.max(1, Math.floor(sourceCode.length / 4));
 
-  const handleSourceChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = e.target.value;
-    setSourceCode(text);
-    // Rough estimate of tokens for AST metrics
-    setTokenCounter(Math.floor(text.length / 4));
+  const handlePresetSelect = (key: string) => {
+    setSelectedPreset(key);
+    if (PRESET_CODE_SNIPPETS[key]) {
+      setSourceCode(PRESET_CODE_SNIPPETS[key].code);
+    }
   };
 
-  const executeAstParsing = () => {
-    const now = new Date().toISOString().replace('T', ' ').substring(11, 19) + ' UTC';
-    setLastCompilationTime(now);
-
-    // Dynamic parsing logic: analyze imports and structural identifiers
+  const handleTriggerAnalysis = async () => {
     if (mode === 'github') {
-      const repoName = githubUrl.split('/').pop() || 'REPOSITORY';
-      const synthesizedGraph: ArchitectureGraph = {
-        ...PRESET_GRAPHS.default,
-        systemName: repoName.toUpperCase().replace(/[-_.]/g, ' '),
-        rawSourceLines: 1240,
-        astNodesCount: 388,
-      };
-      onCompile(synthesizedGraph);
+      await onAnalyze('', 'github', githubUrl);
     } else {
-      // Analyze current source code
-      const hasKafka = sourceCode.toLowerCase().includes('kafka') || sourceCode.includes('producer');
-      const hasRedis = sourceCode.toLowerCase().includes('redis') || sourceCode.includes('cache');
-      const hasDb = sourceCode.toLowerCase().includes('postgres') || sourceCode.includes('database') || sourceCode.includes('sql');
-      const hasAuth = sourceCode.toLowerCase().includes('jwt') || sourceCode.includes('auth');
-
-      const filteredNodes = PRESET_GRAPHS.default.nodes.filter((node) => {
-        if (node.id === 'node-queue' && !hasKafka) return false;
-        if (node.id === 'node-cache' && !hasRedis) return false;
-        if (node.id === 'node-db' && !hasDb) return false;
-        if (node.id === 'node-auth' && !hasAuth) return false;
-        return true;
-      });
-
-      const nodeIds = new Set(filteredNodes.map((n) => n.id));
-      const filteredEdges = PRESET_GRAPHS.default.edges.filter(
-        (edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)
-      );
-
-      const dynamicGraph: ArchitectureGraph = {
-        ...PRESET_GRAPHS.default,
-        systemName: 'AST COMPILED PIPELINE',
-        rawSourceLines: lineCount,
-        astNodesCount: Math.max(34, Math.floor(sourceCode.length / 14)),
-        nodes: filteredNodes.length > 0 ? filteredNodes : PRESET_GRAPHS.default.nodes,
-        edges: filteredEdges.length > 0 ? filteredEdges : PRESET_GRAPHS.default.edges,
-      };
-
-      onCompile(dynamicGraph);
+      await onAnalyze(sourceCode, 'snippet');
     }
+  };
+
+  const handleReset = () => {
+    setSourceCode(PRESET_CODE_SNIPPETS.expressGateway.code);
+    setSelectedPreset('expressGateway');
+    setGithubUrl('https://github.com/nestjs/nest');
   };
 
   return (
@@ -343,13 +196,20 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
         <div className="flex items-center space-x-2">
           <Terminal className="w-3.5 h-3.5 text-[#111111]" />
           <span className="text-[11px] font-bold tracking-widest text-[#111111] uppercase">
-            SOURCE.STREAM // PARSER
+            SOURCE.STREAM // WORKSPACE
           </span>
         </div>
         <div className="flex items-center space-x-2">
+          <button
+            onClick={handleReset}
+            className="p-1 hover:bg-[#111111]/10 text-[#111111] border border-[#111111]/30 transition-colors"
+            title="Reset to default preset"
+          >
+            <RotateCcw className="w-3 h-3" />
+          </button>
           <span className="w-2 h-2 rounded-full bg-[#111111] animate-pulse-subtle" />
           <span className="text-[9px] tracking-wider text-[#111111]/80">
-            AST ENGINE ONLINE
+            {isCompiling ? 'PARSING...' : 'READY'}
           </span>
         </div>
       </div>
@@ -380,8 +240,33 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
         </button>
       </div>
 
+      {/* Preset Selector Dropdown / Bar */}
+      {mode === 'snippet' && (
+        <div className="border-b border-[#111111] p-2 bg-[#dfb2b2]/80 flex items-center justify-between text-[9px]">
+          <span className="text-[#111111]/70 font-bold uppercase tracking-wider">LOAD PRESET:</span>
+          <select
+            value={selectedPreset}
+            onChange={(e) => handlePresetSelect(e.target.value)}
+            className="bg-transparent border border-[#111111] text-[#111111] px-1.5 py-0.5 text-[9px] font-mono tracking-tight focus:outline-none"
+          >
+            {Object.entries(PRESET_CODE_SNIPPETS).map(([k, v]) => (
+              <option key={k} value={k} className="bg-[#dfb2b2] text-[#111111]">
+                {v.label}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       {/* Dynamic Input Body */}
-      <div className="flex-1 flex flex-col p-4 overflow-hidden relative">
+      <div className="flex-1 flex flex-col p-3 overflow-hidden relative">
+        {errorMessage && (
+          <div className="mb-2 p-2 border border-red-700 bg-red-100/60 text-red-900 text-[9px] font-mono flex items-center space-x-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-red-700 shrink-0" />
+            <span className="truncate">{errorMessage}</span>
+          </div>
+        )}
+
         {mode === 'snippet' ? (
           <div className="flex-1 flex flex-col border border-[#111111] bg-[#dfb2b2]/50 relative overflow-hidden">
             {/* Editor Sub-header info */}
@@ -390,7 +275,7 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
                 <FileCode2 className="w-3 h-3" />
                 <span>ENTRY: src/api/gateway.ts</span>
               </span>
-              <span>SYNTAX: TYPESCRIPT // AST</span>
+              <span>LANG: TYPESCRIPT // AST</span>
             </div>
 
             {/* Line numbers + Textarea */}
@@ -402,9 +287,9 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
               </div>
               <textarea
                 value={sourceCode}
-                onChange={handleSourceChange}
+                onChange={(e) => setSourceCode(e.target.value)}
                 spellCheck={false}
-                placeholder="// Paste TypeScript, Express, Prisma, or microservice source code..."
+                placeholder="// Paste TypeScript, Express, Fastify, or microservice code..."
                 className="flex-1 p-2.5 bg-transparent text-[#111111] focus:outline-none resize-none font-mono text-[11px] leading-relaxed selection:bg-[#111111] selection:text-[#dfb2b2] overflow-y-auto"
               />
             </div>
@@ -416,7 +301,7 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
                 Target Enterprise Repository URL:
               </label>
               <p className="text-[10px] text-[#111111]/70 leading-normal">
-                Direct AST resolver inspects remote branches, parses `package.json`, dependency lockfiles, and routing decorators.
+                Direct AST resolver inspects remote branches, parses `package.json`, dependency lockfiles, and routing decorators safely without code execution.
               </p>
             </div>
 
@@ -425,25 +310,34 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
                 type="text"
                 value={githubUrl}
                 onChange={(e) => setGithubUrl(e.target.value)}
-                placeholder="https://github.com/org/microservice-core"
+                placeholder="https://github.com/nestjs/nest"
                 className="w-full py-2.5 px-3 border border-[#111111] bg-transparent text-[11px] text-[#111111] focus:outline-none focus:ring-1 focus:ring-[#111111] font-mono tracking-tight"
               />
             </div>
 
             <div className="border-t border-[#111111]/30 pt-3 space-y-2">
               <span className="text-[9px] uppercase tracking-widest text-[#111111]/60 block font-bold">
-                Enterprise Branch Filters:
+                Example Public Repositories:
               </span>
               <div className="flex flex-wrap gap-1.5 text-[9px]">
-                <span className="px-2 py-0.5 border border-[#111111] bg-[#111111] text-[#dfb2b2]">
-                  refs/heads/main
-                </span>
-                <span className="px-2 py-0.5 border border-[#111111]/50 text-[#111111]/80">
-                  refs/heads/production-rc1
-                </span>
-                <span className="px-2 py-0.5 border border-[#111111]/50 text-[#111111]/80">
-                  tags/v2.4.0
-                </span>
+                <button
+                  onClick={() => setGithubUrl('https://github.com/nestjs/nest')}
+                  className="px-2 py-0.5 border border-[#111111] hover:bg-[#111111] hover:text-[#dfb2b2] transition-colors"
+                >
+                  nestjs/nest
+                </button>
+                <button
+                  onClick={() => setGithubUrl('https://github.com/fastify/fastify')}
+                  className="px-2 py-0.5 border border-[#111111] hover:bg-[#111111] hover:text-[#dfb2b2] transition-colors"
+                >
+                  fastify/fastify
+                </button>
+                <button
+                  onClick={() => setGithubUrl('https://github.com/trpc/trpc')}
+                  className="px-2 py-0.5 border border-[#111111] hover:bg-[#111111] hover:text-[#dfb2b2] transition-colors"
+                >
+                  trpc/trpc
+                </button>
               </div>
             </div>
           </div>
@@ -453,23 +347,25 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
         <div className="mt-3 pt-3 border-t border-[#111111] grid grid-cols-3 gap-2 text-[9px] text-[#111111]/80 tracking-widest uppercase">
           <div>
             <span className="block text-[8px] text-[#111111]/60">LINES SCANNED</span>
-            <span className="font-bold text-[#111111]">{lineCount}</span>
+            <span className="font-bold text-[#111111]">{currentResult ? currentResult.totalLines : lineCount}</span>
           </div>
           <div>
-            <span className="block text-[8px] text-[#111111]/60">TOKENS ESTIMATED</span>
-            <span className="font-bold text-[#111111]">{tokenCounter}</span>
+            <span className="block text-[8px] text-[#111111]/60">TOKENS / NODES</span>
+            <span className="font-bold text-[#111111]">{currentResult ? currentResult.graph.astNodesCount : tokenEstimate}</span>
           </div>
           <div>
-            <span className="block text-[8px] text-[#111111]/60">LAST COMPILED</span>
-            <span className="font-bold text-[#111111] truncate">{lastCompilationTime}</span>
+            <span className="block text-[8px] text-[#111111]/60">MEASURED LATENCY</span>
+            <span className="font-bold text-[#111111] truncate">
+              {currentResult ? `${currentResult.timings.totalMs}ms` : '0.0ms'}
+            </span>
           </div>
         </div>
 
         {/* High-Contrast Action Compilation Button */}
         <button
-          onClick={executeAstParsing}
+          onClick={handleTriggerAnalysis}
           disabled={isCompiling}
-          className="mt-4 w-full py-3 px-4 bg-[#111111] text-[#dfb2b2] text-[11px] font-bold tracking-widest uppercase flex items-center justify-center space-x-2 border border-[#111111] hover:bg-transparent hover:text-[#111111] transition-all duration-200 active:scale-[0.99] disabled:opacity-50"
+          className="mt-3 w-full py-3 px-4 bg-[#111111] text-[#dfb2b2] text-[11px] font-bold tracking-widest uppercase flex items-center justify-center space-x-2 border border-[#111111] hover:bg-transparent hover:text-[#111111] transition-all duration-200 active:scale-[0.99] disabled:opacity-50"
         >
           {isCompiling ? (
             <>
@@ -492,7 +388,7 @@ export const CodeInputPane: React.FC<CodeInputPaneProps> = ({ onCompile, isCompi
           <CheckCircle2 className="w-3 h-3 text-[#111111]" />
           <span>PARSER BUFFER STABLE</span>
         </span>
-        <span>INDEX MEMORY: 3.4 MB</span>
+        <span>STATUS: {currentResult ? currentResult.parserStatus : 'STANDBY'}</span>
       </div>
     </div>
   );

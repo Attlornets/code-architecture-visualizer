@@ -2,35 +2,33 @@ import React, { useState } from 'react';
 import {
   FileText,
   Cpu,
-  Shield,
-  Layers,
   Sparkles,
   RefreshCw,
   Copy,
   Check,
-  Share2,
-  ExternalLink,
   GitCommit,
-  Terminal,
-  Activity,
   ArrowDownRight,
   ArrowUpRight,
+  Layers,
+  FileCode,
 } from 'lucide-react';
 import { ArchitectureNode } from '@/types/architecture';
 
 interface SidebarMetadataProps {
   selectedNode: ArchitectureNode | null;
   onSelectNodeById?: (nodeId: string) => void;
+  onFlipCard?: () => void;
 }
 
 export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
   selectedNode,
-  onSelectNodeById,
+  onFlipCard,
 }) => {
-  const [llmEngine, setLlmEngine] = useState<'openai' | 'local'>('openai');
+  const [llmEngine, setLlmEngine] = useState<'openai' | 'local' | 'deterministic'>('deterministic');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [copied, setCopied] = useState<boolean>(false);
   const [customExplainerNote, setCustomExplainerNote] = useState<string | null>(null);
+  const [activeProvider, setActiveProvider] = useState<string>('AST Engine');
 
   const handleCopySpec = () => {
     if (!selectedNode) return;
@@ -39,19 +37,40 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleTriggerLlmExplanation = () => {
+  const handleTriggerLlmExplanation = async () => {
     if (!selectedNode) return;
     setIsGenerating(true);
     setCustomExplainerNote(null);
 
-    setTimeout(() => {
+    try {
+      const res = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nodeLabel: selectedNode.label,
+          category: selectedNode.category,
+          fileOrigin: selectedNode.fileOrigin,
+          symbols: selectedNode.symbols?.map((s) => s.name) || [],
+          upstream: selectedNode.dependencies.upstream,
+          downstream: selectedNode.dependencies.downstream,
+          engine: llmEngine,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setCustomExplainerNote(data.explanation);
+        setActiveProvider(`${data.provider} (${data.durationMs}ms)`);
+      } else {
+        setCustomExplainerNote(selectedNode.summary);
+        setActiveProvider('AST Synthesizer');
+      }
+    } catch {
+      setCustomExplainerNote(selectedNode.summary);
+      setActiveProvider('AST Synthesizer');
+    } finally {
       setIsGenerating(false);
-      setCustomExplainerNote(
-        `[Synthesized by ${llmEngine.toUpperCase()}]: The ${selectedNode.label} acts as an architectural control plane. ` +
-          `It binds '${selectedNode.fileOrigin}' to execute transactional contracts under ${selectedNode.metrics.securityZone}. ` +
-          `Downstream throughput holds steady at ${selectedNode.metrics.throughput} with deterministic sub-millisecond p99 latency guarantees.`
-      );
-    }, 900);
+    }
   };
 
   return (
@@ -75,9 +94,19 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
       <div className="border-b border-[#111111] p-2 flex items-center justify-between bg-[#dfb2b2]">
         <div className="flex items-center space-x-1.5 text-[9px] text-[#111111]/80">
           <Cpu className="w-3 h-3 text-[#111111]" />
-          <span className="font-bold">LLM ENGINE:</span>
+          <span className="font-bold">EXPLAINER:</span>
         </div>
         <div className="flex space-x-1 text-[9px]">
+          <button
+            onClick={() => setLlmEngine('deterministic')}
+            className={`px-2 py-0.5 border border-[#111111] tracking-wider transition-colors ${
+              llmEngine === 'deterministic'
+                ? 'bg-[#111111] text-[#dfb2b2] font-bold'
+                : 'bg-transparent text-[#111111] hover:bg-[#111111]/10'
+            }`}
+          >
+            AST VERIFIED
+          </button>
           <button
             onClick={() => setLlmEngine('openai')}
             className={`px-2 py-0.5 border border-[#111111] tracking-wider transition-colors ${
@@ -86,7 +115,7 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
                 : 'bg-transparent text-[#111111] hover:bg-[#111111]/10'
             }`}
           >
-            GPT-4o (OPENAI)
+            GPT-4o
           </button>
           <button
             onClick={() => setLlmEngine('local')}
@@ -96,7 +125,7 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
                 : 'bg-transparent text-[#111111] hover:bg-[#111111]/10'
             }`}
           >
-            LOCAL (LLAMA 3)
+            LOCAL
           </button>
         </div>
       </div>
@@ -116,8 +145,8 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
                 <h3 className="text-sm font-bold tracking-tight uppercase text-[#111111]">
                   {selectedNode.label}
                 </h3>
-                <span className="text-[10px] text-[#111111]/80 font-mono block mt-0.5">
-                  FILE: {selectedNode.fileOrigin}
+                <span className="text-[10px] text-[#111111]/80 font-mono block mt-0.5 truncate">
+                  ORIGIN: {selectedNode.fileOrigin}
                 </span>
               </div>
 
@@ -160,11 +189,14 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
                     <RefreshCw className="w-3 h-3 animate-spin" />
                     <span>SYNTHESIZING CONTEXTUAL EXPLANATION VIA {llmEngine.toUpperCase()}...</span>
                   </div>
-                ) : customExplainerNote ? (
-                  <p className="animate-fadeIn">{customExplainerNote}</p>
                 ) : (
-                  <p>{selectedNode.summary}</p>
+                  <p>{customExplainerNote || selectedNode.summary}</p>
                 )}
+              </div>
+
+              <div className="text-[8px] font-mono text-[#dfb2b2]/50 border-t border-[#dfb2b2]/10 pt-1 flex justify-between">
+                <span>SOURCE: {activeProvider}</span>
+                <span>NO HALLUCINATION GATEWAY</span>
               </div>
             </div>
 
@@ -190,6 +222,33 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
                 ))}
               </div>
             </div>
+
+            {/* Verified AST Symbols */}
+            {selectedNode.symbols && selectedNode.symbols.length > 0 && (
+              <div className="border border-[#111111] bg-[#dfb2b2]/40 p-3 space-y-2">
+                <div className="flex items-center justify-between text-[9px] tracking-widest text-[#111111]/70 uppercase border-b border-[#111111]/20 pb-1.5">
+                  <span className="flex items-center space-x-1.5 font-bold text-[#111111]">
+                    <FileCode className="w-3 h-3" />
+                    <span>GROUNDED CODE SYMBOLS</span>
+                  </span>
+                  <span className="text-[8px]">{selectedNode.symbols.length} PARSED</span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-1 text-[9px]">
+                  {selectedNode.symbols.slice(0, 6).map((sym, i) => (
+                    <div
+                      key={i}
+                      className="p-1 border border-[#111111]/30 bg-[#dfb2b2] flex items-center justify-between"
+                    >
+                      <span className="font-bold truncate">{sym.name}</span>
+                      <span className="text-[#111111]/60 text-[8px]">
+                        {sym.kind} : L{sym.line}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Topological Upstream & Downstream Routing */}
             <div className="border border-[#111111] bg-[#dfb2b2]/40 p-3 space-y-2">
@@ -249,7 +308,7 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
                 {selectedNode.dataContracts.map((contract, i) => (
                   <li key={i} className="flex items-center space-x-1.5">
                     <span className="w-1 h-1 rounded-full bg-[#111111]" />
-                    <span className="font-mono">{contract}</span>
+                    <span className="font-mono truncate">{contract}</span>
                   </li>
                 ))}
               </ul>
@@ -269,21 +328,29 @@ export const SidebarMetadata: React.FC<SidebarMetadataProps> = ({
       </div>
 
       {/* Action Footer Bar */}
-      <div className="p-3 border-t border-[#111111] bg-[#dfb2b2] flex items-center justify-between">
+      <div className="p-3 border-t border-[#111111] bg-[#dfb2b2] flex items-center space-x-2">
+        {onFlipCard && selectedNode && (
+          <button
+            onClick={onFlipCard}
+            className="flex-1 py-2 px-2 border border-[#111111] text-[9px] font-bold tracking-widest uppercase bg-[#111111] text-[#dfb2b2] hover:bg-transparent hover:text-[#111111] transition-colors"
+          >
+            FLIP CARD DETAIL
+          </button>
+        )}
         <button
           onClick={handleCopySpec}
           disabled={!selectedNode}
-          className="flex-1 py-2 px-3 border border-[#111111] text-[10px] font-bold tracking-widest uppercase flex items-center justify-center space-x-1.5 hover:bg-[#111111] hover:text-[#dfb2b2] transition-colors disabled:opacity-40"
+          className="flex-1 py-2 px-2 border border-[#111111] text-[9px] font-bold tracking-widest uppercase flex items-center justify-center space-x-1 hover:bg-[#111111] hover:text-[#dfb2b2] transition-colors disabled:opacity-40"
         >
           {copied ? (
             <>
               <Check className="w-3 h-3" />
-              <span>COPIED SPECIFICATION</span>
+              <span>COPIED SPEC</span>
             </>
           ) : (
             <>
               <Copy className="w-3 h-3" />
-              <span>EXPORT SPEC JSON</span>
+              <span>EXPORT SPEC</span>
             </>
           )}
         </button>
