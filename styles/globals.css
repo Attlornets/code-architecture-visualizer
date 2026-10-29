@@ -1,0 +1,107 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --bg-base: #dfb2b2;
+    --fg-ink: #111111;
+    --border-ink: rgba(17, 17, 17, 0.3);
+    --border-ink-strong: #111111;
+    --accent-grid: rgba(17, 17, 17, 0.08);
+  }
+
+  * {
+    border-color: var(--border-ink);
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    background-color: var(--bg-base);
+    color: var(--fg-ink);
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: #111111;
+    color: #dfb2b2;
+  }
+}
+
+/* Editorial Bespoke Utilities */
+.editorial-letter-spacing {
+  letter-spacing: 0.08em;
+  transition: letter-spacing 300ms cubic-bezier(0.16, 1, 0.3, 1), transform 300ms cubic-bezier(0.16, 1, 0.3, 1), color 200ms ease;
+  will-change: letter-spacing, transform;
+}
+
+.editorial-letter-spacing:hover {
+  letter-spacing: 0.28em;
+}
+
+.vertical-text {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  transform: rotate(180deg);
+  white-space: nowrap;
+}
+
+/* Technical Blueprint Coordinate Grid Background */
+.bg-editorial-grid {
+  background-image: 
+    linear-gradient(to right, rgba(17, 17, 17, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(17, 17, 17, 0.07) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.bg-editorial-crosshair {
+  background-image: 
+    radial-gradient(rgba(17, 17, 17, 0.25) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* GPU Accelerated Dash Animation for Vector Graph Edges */
+@keyframes dashTravel {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -40;
+  }
+}
+
+.animate-edge-flow {
+  stroke-dasharray: 6 4;
+  animation: dashTravel 1.6s linear infinite;
+}
+
+.animate-edge-flow-fast {
+  stroke-dasharray: 8 4;
+  animation: dashTravel 0.9s linear infinite;
+}
+
+/* Custom Editorial Scrollbar */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(17, 17, 17, 0.05);
+}
+
+::-webkit-scrollbar-thumb {
+  background: #111111;
+  border-radius: 0px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(17, 17, 17, 0.8);
+}
